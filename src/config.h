@@ -131,12 +131,12 @@ RESOLVFILE
    has no library dependencies other than libc */
 
 #define HAVE_DHCP
-#define HAVE_DHCP6 
+#define HAVE_DHCP6
 #define HAVE_TFTP
 #define HAVE_SCRIPT
 #define HAVE_AUTH
 #define HAVE_IPSET 
-/* #define HAVE_LUASCRIPT */
+#define HAVE_LUASCRIPT
 /* #define HAVE_BROKEN_RTC */
 /* #define HAVE_DBUS */
 /* #define HAVE_IDN */

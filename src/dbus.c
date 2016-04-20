@@ -108,9 +108,53 @@ static void remove_watch(DBusWatch *watch, void *data)
   w = data; /* no warning */
 }
 
+static void del_domain_server(const char *domain) {
+  struct server *serv, *prev, header;
+  struct crec *cr;
+
+  int domain_len = strlen(domain);
+
+  header.next = daemon->servers;
+  prev  = &header;
+  
+  for (serv = daemon->servers; serv; prev = serv, serv = serv->next)
+  {
+    if (!(serv->flags & SERV_HAS_DOMAIN) || !hostname_isequal(domain, serv->domain))
+    {
+      continue;
+    }
+
+    my_syslog(LOG_INFO, "domain %s found\n", domain);
+    prev->next = serv->next;
+    free(serv);
+    serv = prev;
+  }
+  if (header.next != daemon->servers) {
+    daemon->servers = header.next;
+  }
+
+  cache_enumerate(1);
+
+  while ((cr = cache_enumerate(0))) {
+    char *name = cache_get_name(cr);
+    int cache_name_len = strlen(name);
+    
+    //my_syslog(LOG_INFO, "matching %s\n", name);
+    if (cache_name_len < domain_len)
+      continue;
+    if (strcmp(name - domain_len + cache_name_len, domain))
+      continue;
+    if ((domain_len == cache_name_len) || (*(name - domain_len + cache_name_len - 1) == '.')) {
+      //if (!is_expired(time(NULL),cr))
+      my_syslog(LOG_INFO, "mark %s as expired\n", name);
+      cr->ttd = 0;
+    }
+  }
+}
+
 static void add_update_server(union mysockaddr *addr,
                               union mysockaddr *source_addr,
-			      const char *interface,
+                              const char *interface,
                               const char *domain)
 {
   struct server *serv;
@@ -148,20 +192,20 @@ static void add_update_server(union mysockaddr *addr,
         }
       else
         {
-	  serv->next = daemon->servers;
-	  daemon->servers = serv;
 	  serv->flags = SERV_FROM_DBUS;
 	  if (domain)
 	    {
 	      strcpy(serv->domain, domain);
 	      serv->flags |= SERV_HAS_DOMAIN;
 	    }
+	  serv->next = daemon->servers;
+	  daemon->servers = serv;
 	}
     }
   
   if (serv)
     {
-      if (interface)
+      if (interface && *interface)
 	strcpy(serv->interface, interface);
       else
 	serv->interface[0] = 0;
@@ -302,10 +346,10 @@ static DBusMessage* dbus_read_servers_ex(DBusMessage *message, int strings)
 {
   DBusMessageIter iter, array_iter, string_iter;
   DBusMessage *error = NULL;
-  const char *addr_err;
+  const char *addr_err = NULL;
   char *dup = NULL;
   
-  my_syslog(LOG_INFO, _("setting upstream servers from DBus"));
+  //my_syslog(LOG_INFO, _("setting upstream servers from DBus"));
   
   if (!dbus_message_iter_init(message, &iter))
     {
@@ -321,7 +365,7 @@ static DBusMessage* dbus_read_servers_ex(DBusMessage *message, int strings)
                                     strings ? "Expected array of string" : "Expected array of string arrays");
      }
  
-  mark_dbus();
+  //mark_dbus();
 
   /* array_iter points to each "as" element in the outer array */
   dbus_message_iter_recurse(&iter, &array_iter);
@@ -415,10 +459,11 @@ static DBusMessage* dbus_read_servers_ex(DBusMessage *message, int strings)
 
       memset(&addr, 0, sizeof(addr));
       memset(&source_addr, 0, sizeof(source_addr));
-      memset(&interface, 0, sizeof(interface));
+      memset(interface, 0, sizeof(interface));
 
       /* parse the IP address */
-      addr_err = parse_server(str_addr, &addr, &source_addr, (char *) &interface, NULL);
+      if (str_addr[0])
+        addr_err = parse_server(str_addr, &addr, &source_addr, (char *) interface, NULL);
 
       if (addr_err)
         {
@@ -441,7 +486,13 @@ static DBusMessage* dbus_read_servers_ex(DBusMessage *message, int strings)
 	    else 
 	      p = NULL;
 	    
-	    add_update_server(&addr, &source_addr, interface, str_domain);
+	    if (str_addr[0]) {
+              my_syslog(LOG_INFO, "add server /%s/%s", str_domain, str_addr);
+	      add_update_server(&addr, &source_addr, interface, str_domain);
+	    } else {
+              my_syslog(LOG_INFO, "delete server for domain %s", str_domain);
+	      del_domain_server(str_domain);
+	    }
 	  } while ((str_domain = p));
 	}
       else

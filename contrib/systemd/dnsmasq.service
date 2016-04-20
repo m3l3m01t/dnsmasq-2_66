@@ -5,7 +5,7 @@ Description=A lightweight DHCP and caching DNS server
 Type=dbus
 BusName=uk.org.thekelleys.dnsmasq
 ExecStartPre=/usr/sbin/dnsmasq --test
-ExecStart=/usr/sbin/dnsmasq -k
+ExecStart=/usr/sbin/dnsmasq -k -1
 ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]

@@ -1016,6 +1016,7 @@ void check_servers(void)
       new->next = ret;
       ret = new;
       
+#if 0
       if (!(new->flags & SERV_NO_REBIND))
 	{
 	  if (new->flags & (SERV_HAS_DOMAIN | SERV_FOR_NODOTS | SERV_USE_RESOLV))
@@ -1040,6 +1041,7 @@ void check_servers(void)
 	  else
 	    my_syslog(LOG_INFO, _("using nameserver %s#%d"), daemon->namebuff, port); 
 	}
+#endif
     }
   
   daemon->servers = ret;
