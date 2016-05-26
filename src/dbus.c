@@ -108,11 +108,36 @@ static void remove_watch(DBusWatch *watch, void *data)
   w = data; /* no warning */
 }
 
+void cache_clear_domain(const char *domain)
+{
+  struct crec *cr;
+  int domain_len = strlen(domain);
+
+  cache_enumerate(1);
+
+  while ((cr = cache_enumerate(0))) {
+    char *name = cache_get_name(cr);
+    int cache_name_len = strlen(name);
+    
+    //my_syslog(LOG_INFO, "matching %s\n", name);
+    if (cache_name_len < domain_len)
+      continue;
+    if (strcmp(name - domain_len + cache_name_len, domain))
+      continue;
+    if ((domain_len == cache_name_len) || (*(name - domain_len + cache_name_len - 1) == '.')) {
+      //if (!is_expired(time(NULL),cr))
+      my_syslog(LOG_INFO, "mark %s as expired\n", name);
+      cr->ttd = 0;
+    }
+  }
+}
+
+extern struct server_ns * hash_add_domain(const char *domain);
+extern struct server_ns *hash_find_domain(const char *domain);
+extern void hash_free_domain(const char *domain);
+
 static void del_domain_server(const char *domain) {
   struct server *serv, *prev, header;
-  struct crec *cr;
-
-  int domain_len = strlen(domain);
 
   header.next = daemon->servers;
   prev  = &header;
@@ -133,23 +158,8 @@ static void del_domain_server(const char *domain) {
     daemon->servers = header.next;
   }
 
-  cache_enumerate(1);
-
-  while ((cr = cache_enumerate(0))) {
-    char *name = cache_get_name(cr);
-    int cache_name_len = strlen(name);
-    
-    //my_syslog(LOG_INFO, "matching %s\n", name);
-    if (cache_name_len < domain_len)
-      continue;
-    if (strcmp(name - domain_len + cache_name_len, domain))
-      continue;
-    if ((domain_len == cache_name_len) || (*(name - domain_len + cache_name_len - 1) == '.')) {
-      //if (!is_expired(time(NULL),cr))
-      my_syslog(LOG_INFO, "mark %s as expired\n", name);
-      cr->ttd = 0;
-    }
-  }
+  hash_free_domain(domain);
+  cache_clear_domain(domain);
 }
 
 static void add_update_server(union mysockaddr *addr,
@@ -221,6 +231,10 @@ static void add_update_server(union mysockaddr *addr,
           serv->source_addr = *source_addr;
         }
     }
+
+  if (!hash_find_domain(domain))
+    hash_add_domain(domain);
+  cache_clear_domain(domain);
 }
 
 static void mark_dbus(void)

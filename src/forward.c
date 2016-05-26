@@ -232,6 +232,8 @@ static unsigned int search_servers(time_t now, struct all_addr **addrpp,
   return  flags;
 }
 
+extern struct domain_ns *hash_match_domain(const char *domain);
+
 static int forward_query(int udpfd, union mysockaddr *udpaddr,
 			 struct all_addr *dst_addr, unsigned int dst_iface,
 			 struct dns_header *header, size_t plen, time_t now, struct frec *forward)
@@ -327,19 +329,18 @@ static int forward_query(int udpfd, union mysockaddr *udpaddr,
     {
       struct server *firstsentto = start;
       int forwarded = 0;
+      int domain_hashed = (domain && hash_match_domain(domain)) ? 1 : 0;
       
       if (option_bool(OPT_ADD_MAC))
 	plen = add_mac(header, plen, ((char *) header) + PACKETSZ, &forward->source);
-      
+
       while (1)
 	{ 
 	  /* only send to servers dealing with our domain.
 	     domain may be NULL, in which case server->domain 
 	     must be NULL also. */
 	  
-	  if (type == (start->flags & SERV_TYPE) &&
-	      (type != SERV_HAS_DOMAIN || hostname_isequal(domain, start->domain)) &&
-	      !(start->flags & SERV_LITERAL_ADDRESS))
+	  if (type == (start->flags & SERV_TYPE) && ((!domain_hashed && type != SERV_HAS_DOMAIN) || (type == SERV_HAS_DOMAIN && domain_hashed && hostname_isequal(domain, start->domain))) && !(start->flags & SERV_LITERAL_ADDRESS))
 	    {
 	      int fd;
 

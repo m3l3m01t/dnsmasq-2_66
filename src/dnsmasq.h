@@ -766,6 +766,12 @@ struct tftp_prefix {
   struct tftp_prefix *next;
 };
 
+#include <uthash.h>
+typedef struct domain_ns {
+  char domain[128];
+  int  len;
+  UT_hash_handle hh;
+} domain_ns_t;
 
 extern struct daemon {
   /* datastuctures representing the command-line and 
@@ -798,6 +804,7 @@ extern struct daemon {
   struct iname *if_names, *if_addrs, *if_except, *dhcp_except, *auth_peers;
   struct bogus_addr *bogus_addr;
   struct server *servers;
+  struct domain_ns *domains;
   struct ipsets *ipsets;
   int log_fac; /* log facility */
   char *log_file; /* optional log file */

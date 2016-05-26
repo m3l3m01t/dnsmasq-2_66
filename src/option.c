@@ -1285,6 +1285,45 @@ void reset_option_bool(unsigned int opt)
     daemon->options2 &= ~(1u << (opt - 32));
 }
 
+struct domain_ns * hash_match_domain(const char *domain)
+{
+  struct domain_ns *ns  = NULL;
+  const char *p = domain;
+
+  do {
+    HASH_FIND_STR(daemon->domains, p, ns);
+  } while (!ns && (p = strchr(p, '.') + 1) > domain);
+
+  return ns;
+}
+
+struct domain_ns * hash_add_domain(const char *domain)
+{
+  struct domain_ns *ns  = NULL;
+  ns = opt_malloc(sizeof(struct domain_ns));
+  strncpy (ns->domain, domain, 128);
+  ns->len = strlen(domain);
+  HASH_ADD_STR(daemon->domains, domain, ns);
+
+  return ns;
+}
+
+struct domain_ns *hash_find_domain(const char *domain)
+{
+  struct domain_ns *ns  = NULL;
+  HASH_FIND_STR(daemon->domains, domain, ns);
+  return ns;
+}
+
+void hash_free_domain(const char *domain)
+{
+  struct domain_ns *ns = hash_find_domain(domain);
+  if (ns) {
+    HASH_DEL(daemon->domains, ns);
+    free(ns);
+  } 
+}
+
 static int one_opt(int option, char *arg, char *errstr, char *gen_err, int command_line)
 {      
   int i;
@@ -1960,87 +1999,92 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
     case 'A':            /*  --address */
     case LOPT_NO_REBIND: /*  --rebind-domain-ok */
       {
-	struct server *serv, *newlist = NULL;
-	
-	unhide_metas(arg);
-	
-	if (arg && (*arg == '/' || option == LOPT_NO_REBIND))
-	  {
-	    int rebind = !(*arg == '/');
-	    char *end = NULL;
-	    if (!rebind)
-	      arg++;
-	    while (rebind || (end = split_chr(arg, '/')))
-	      {
-		char *domain = NULL;
-		/* elide leading dots - they are implied in the search algorithm */
-		while (*arg == '.') arg++;
-		/* # matches everything and becomes a zero length domain string */
-		if (strcmp(arg, "#") == 0)
-		  domain = "";
-		else if (strlen (arg) != 0 && !(domain = canonicalise_opt(arg)))
-		  option = '?';
-		serv = opt_malloc(sizeof(struct server));
-		memset(serv, 0, sizeof(struct server));
-		serv->next = newlist;
-		newlist = serv;
-		serv->domain = domain;
-		serv->flags = domain ? SERV_HAS_DOMAIN : SERV_FOR_NODOTS;
-		arg = end;
-		if (rebind)
-		  break;
-	      }
-	    if (!newlist)
-	      ret_err(gen_err);
-	  }
-	else
-	  {
-	    newlist = opt_malloc(sizeof(struct server));
-	    memset(newlist, 0, sizeof(struct server));
-	  }
-	
-	if (option == 'A')
-	  {
-	    newlist->flags |= SERV_LITERAL_ADDRESS;
-	    if (!(newlist->flags & SERV_TYPE))
-	      ret_err(gen_err);
-	  }
-	else if (option == LOPT_NO_REBIND)
-	  newlist->flags |= SERV_NO_REBIND;
-	
-	if (!arg || !*arg)
-	  {
-	    if (!(newlist->flags & SERV_NO_REBIND))
-	      newlist->flags |= SERV_NO_ADDR; /* no server */
-	    if (newlist->flags & SERV_LITERAL_ADDRESS)
-	      ret_err(gen_err);
-	  }
+        struct server *serv, *newlist = NULL;
 
-	else if (strcmp(arg, "#") == 0)
-	  {
-	    newlist->flags |= SERV_USE_RESOLV; /* treat in ordinary way */
-	    if (newlist->flags & SERV_LITERAL_ADDRESS)
-	      ret_err(gen_err);
-	  }
-	else
-	  {
-	    char *err = parse_server(arg, &newlist->addr, &newlist->source_addr, newlist->interface, &newlist->flags);
-	    if (err)
-	      ret_err(err);
-	  }
-	
-	serv = newlist;
-	while (serv->next)
-	  {
-	    serv->next->flags = serv->flags;
-	    serv->next->addr = serv->addr;
-	    serv->next->source_addr = serv->source_addr;
-	    strcpy(serv->next->interface, serv->interface);
-	    serv = serv->next;
-	  }
-	serv->next = daemon->servers;
-	daemon->servers = newlist;
-	break;
+        unhide_metas(arg);
+
+        if (arg && (*arg == '/' || option == LOPT_NO_REBIND))
+        {
+          int rebind = !(*arg == '/');
+          char *end = NULL;
+          if (!rebind)
+            arg++;
+          while (rebind || (end = split_chr(arg, '/')))
+          {
+            char *domain = NULL;
+            /* elide leading dots - they are implied in the search algorithm */
+            while (*arg == '.') arg++;
+            /* # matches everything and becomes a zero length domain string */
+            if (strcmp(arg, "#") == 0)
+              domain = "";
+            else if (strlen (arg) != 0 && !(domain = canonicalise_opt(arg)))
+              option = '?';
+            serv = opt_malloc(sizeof(struct server));
+            memset(serv, 0, sizeof(struct server));
+            serv->next = newlist;
+            newlist = serv;
+            serv->domain = domain;
+            serv->flags = domain ? SERV_HAS_DOMAIN : SERV_FOR_NODOTS;
+            arg = end;
+
+            if (newlist->flags & SERV_HAS_DOMAIN) {
+              hash_add_domain(domain);
+            }
+
+            if (rebind)
+              break;
+          }
+          if (!newlist)
+            ret_err(gen_err);
+        }
+        else
+        {
+          newlist = opt_malloc(sizeof(struct server));
+          memset(newlist, 0, sizeof(struct server));
+        }
+
+        if (option == 'A')
+        {
+          newlist->flags |= SERV_LITERAL_ADDRESS;
+          if (!(newlist->flags & SERV_TYPE))
+            ret_err(gen_err);
+        }
+        else if (option == LOPT_NO_REBIND)
+          newlist->flags |= SERV_NO_REBIND;
+
+        if (!arg || !*arg)
+        {
+          if (!(newlist->flags & SERV_NO_REBIND))
+            newlist->flags |= SERV_NO_ADDR; /* no server */
+          if (newlist->flags & SERV_LITERAL_ADDRESS)
+            ret_err(gen_err);
+        }
+
+        else if (strcmp(arg, "#") == 0)
+        {
+          newlist->flags |= SERV_USE_RESOLV; /* treat in ordinary way */
+          if (newlist->flags & SERV_LITERAL_ADDRESS)
+            ret_err(gen_err);
+        }
+        else
+        {
+          char *err = parse_server(arg, &newlist->addr, &newlist->source_addr, newlist->interface, &newlist->flags);
+          if (err)
+            ret_err(err);
+        }
+
+        serv = newlist;
+        while (serv->next)
+        {
+          serv->next->flags = serv->flags;
+          serv->next->addr = serv->addr;
+          serv->next->source_addr = serv->source_addr;
+          strcpy(serv->next->interface, serv->interface);
+          serv = serv->next;
+        }
+        serv->next = daemon->servers;
+        daemon->servers = newlist;
+        break;
       }
 
     case LOPT_IPSET: /* --ipset */
